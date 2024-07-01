@@ -9,13 +9,14 @@ import { Storage } from "../utils/storage";
 declare const PROXY_WEBPACK_ENTRY: string;
 declare const PROXY_PRELOAD_WEBPACK_ENTRY: string;
 
-export type Hosts = Array<{
+export type Host = {
     name: string,
-    url: string,
-    active?: boolean
-}>
+    url: string
+};
+export type Hosts = Array<Host>
 
 export class ProxyService {
+    private onChange: (data: { connected: boolean, host?: Host }) => void;
     readonly storage = new Storage<Hosts>(path.join(app.getPath('userData'), "/hosts"));
     private server: Server;
 
@@ -40,23 +41,28 @@ export class ProxyService {
 
         ipcMain.handle('proxy-minimize', () => this.browserWindow.minimize());
         ipcMain.handle('proxy-close', () => this.browserWindow.hide());
-        ipcMain.handle('proxy-write-storage', (_, hosts: Hosts) => this.storage.set(hosts))
-        ipcMain.handle('proxy-read-storage', () => this.storage.get().catch(() => []))
-        ipcMain.handle('proxy-disconnect', () => new Promise<void>(resolve => this.server?.close(() => resolve()) || resolve()))
-        ipcMain.handle('proxy-connect', (_, host) => new Promise<void>((resolve, reject) => {
+        ipcMain.handle('proxy-write-storage', (_, hosts: Hosts) => this.storage.set(hosts));
+        ipcMain.handle('proxy-read-storage', () => this.storage.get().catch(() => []));
+        ipcMain.handle('proxy-disconnect', () => new Promise<void>(ok => this.server?.close(() => ok()) || ok())
+            .then(() => this.onChange?.({ connected: false })));
+        ipcMain.handle('proxy-connect', (_, host: Host) => new Promise<void>((resolve, reject) => {
             const connect = () => {
                 const express = require("express")();
-                const wsProxy = createProxyMiddleware({ ws: true, target: host.replace(/^http/, 'ws'), changeOrigin: true, secure: false });
-                express.use('/', createProxyMiddleware({ target: host, secure: false, changeOrigin: true }))
+                const wsProxy = createProxyMiddleware({ ws: true, target: host.url.replace(/^http/, 'ws'), changeOrigin: true, secure: false });
+                express.use('/', createProxyMiddleware({ target: host.url, secure: false, changeOrigin: true }))
                 express.use(wsProxy);
                 this.server = createServer({
                     key: fs.readFileSync(path.join(__dirname, '/assets/ssl/key.pem'), "utf8"),
                     cert: fs.readFileSync(path.join(__dirname, '/assets/ssl/cert.pem'), "utf8")
                 }, express);
 
-                this.server.listen(8443, () => resolve());
+                this.server.listen(8443, () => {
+                    this.onChange?.({ connected: true, host })
+                    resolve();
+                });
                 this.server.on('upgrade', wsProxy.upgrade);
                 this.server.once("error", (e) => {
+                    this.onChange?.({ connected: false })
                     new Notification({ title: 'Connection error', body: e.message }).show();
                     reject(e);
                 });
@@ -68,5 +74,9 @@ export class ProxyService {
 
     show() {
         this.browserWindow.show()
+    }
+
+    registerOnChangeFn(onChange: (data: { connected: boolean, host?: Host }) => void) {
+        this.onChange = onChange;
     }
 }

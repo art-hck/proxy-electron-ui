@@ -17,6 +17,8 @@ if (!gotTheLock) {
             onProxy: () => proxy.show(),
             onClose: () => app.quit(),
         });
+        proxy.registerOnChangeFn(data => trayService.update(data))
+        proxy.show();
 
         ipcMain.handle('log', (e, ...args) => console.log(...args));
     });

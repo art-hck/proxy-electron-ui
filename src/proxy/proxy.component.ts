@@ -1,13 +1,13 @@
 import { ipcRenderer } from 'electron';
 import { domOperator } from "../utils/domOperator";
-import { Hosts } from "./proxy.service";
+import { Host, Hosts } from "./proxy.service";
 
 (function ($) {
     $(async () => {
-
-        let hosts: Hosts = await ipcRenderer.invoke('proxy-read-storage');
+        const hosts: Hosts = await ipcRenderer.invoke('proxy-read-storage');
         const list = $('.app-hosts').get();
         const listGroupItemTpl: HTMLTemplateElement = $('#list-group-item-tpl').get();
+        let activeIndex: number;
 
         $('.app-minimize').on('click', () => ipcRenderer.invoke('proxy-minimize'));
         $('.app-close').on('click', () => ipcRenderer.invoke('proxy-close'));
@@ -32,8 +32,8 @@ import { Hosts } from "./proxy.service";
         }
 
         async function connect(index: number) {
-            await ipcRenderer.invoke(hosts[index].active ? 'proxy-disconnect' : 'proxy-connect', hosts[index].url)
-            hosts.forEach((item, i) => item.active = i === index && !hosts[index].active);
+            await ipcRenderer.invoke(activeIndex === index ? 'proxy-disconnect' : 'proxy-connect', hosts[index])
+            activeIndex = activeIndex === index ? undefined : index;
             updateActiveElement();
         }
 
@@ -51,7 +51,7 @@ import { Hosts } from "./proxy.service";
 
         function updateActiveElement() {
             for (let i = 0; i < list.children.length; i++) {
-                list.children[i].classList[hosts[i]?.active ? 'add' : 'remove']('list-group-item-primary')
+                list.children[i].classList[i === activeIndex ? 'add' : 'remove']('list-group-item-primary')
             }
         }
 
@@ -59,7 +59,7 @@ import { Hosts } from "./proxy.service";
             e.preventDefault();
             this.classList.add('app-validated');
             if (this.checkValidity()) {
-                hosts.push($(this).serialize<{ name: string, url: string }>());
+                hosts.push($(this).serialize<Host>());
                 ipcRenderer.invoke('proxy-write-storage', hosts);
                 this.reset();
                 this.classList.remove('app-validated');
